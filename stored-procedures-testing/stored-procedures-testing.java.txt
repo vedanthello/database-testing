@@ -1,0 +1,176 @@
+package storedprocedureTesting;
+
+import java.sql.CallableStatement;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.sql.Types;
+
+import org.apache.commons.lang3.StringUtils;
+import org.testng.Assert;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Test;
+
+public class StoredProcedureTesting {
+  
+  Connection connection = null;
+  Statement statement = null;
+  ResultSet resultSet;
+  CallableStatement callableStatement;
+  ResultSet resultSet1;
+  ResultSet resultSet2;
+  
+  @BeforeClass
+  void setup() throws SQLException{
+	  
+	  connection = DriverManager.getConnection(jdbcmysqllocalhost3306classicmodels, root, root);
+  }
+  
+  @AfterClass
+  void tearDown() throws SQLException {
+	  connection.close();
+  }
+  
+  @Test(priority=1)
+  void test_storedProcedureExists() throws SQLException {
+	  
+	  statement = connection.createStatement();
+	  resultSet = statement.executeQuery(SHOW PROCEDURE STATUS WHERE NAME='SELECTALLCUSTOMERS');
+	  resultSet.next();
+	  Assert.assertEquals(resultSet.getString(Name), SelectAllCustomers);
+	  
+  }
+  
+  @Test(priority=2)
+  void test_selectAllCustomers() throws SQLException {
+	  
+	  callableStatement = connection.prepareCall({CALL SELECTALLCUSTOMERS});
+	  resultSet1 = callableStatement.executeQuery();
+	  
+	  statement = connection.createStatement();
+	  resultSet2 = statement.executeQuery(SELECT  FROM CUSTOMERS);
+	  
+	  Assert.assertEquals(compareResultSets(resultSet1, resultSet2), true);
+	  
+  }
+  
+  @Test(priority=3)
+  void test_selectAllCustomersByCity() throws SQLException {
+	  
+	  callableStatement = connection.prepareCall({CALL SELECTALLCUSTOMERSBYCITY()});
+	  callableStatement.setString(1, Singapore);
+	  resultSet1 = callableStatement.executeQuery();
+	  
+	  statement = connection.createStatement();
+	  resultSet2 = statement.executeQuery(SELECT  FROM CUSTOMERS WHERE CITY='SINGAPORE');
+	  
+	  Assert.assertEquals(compareResultSets(resultSet1, resultSet2), true);
+	  
+  }
+  
+  @Test(priority=4)
+  void test_selectAllCustomersByCityAndPin() throws SQLException {
+	  
+	  callableStatement = connection.prepareCall({CALL SELECTALLCUSTOMERSBYCITYANDPIN(, )});
+	  callableStatement.setString(1, Singapore);
+	  callableStatement.setString(2, 079903);
+	  resultSet1 = callableStatement.executeQuery();
+	  
+	  statement = connection.createStatement();
+	  resultSet2 = statement.executeQuery(SELECT  FROM CUSTOMERS WHERE CITY='SINGAPORE' AND POSTALCODE='079903');
+	  
+	  Assert.assertEquals(compareResultSets(resultSet1, resultSet2), true);
+	  
+  }
+  
+  @Test(priority=5)
+  void test_getOrderByCustomer() throws SQLException {
+	  
+	  callableStatement = connection.prepareCall({CALL GET_ORDER_BY_CUST(, , , , )});
+	  callableStatement.setInt(1, 141);
+	  
+	  callableStatement.registerOutParameter(2, Types.INTEGER);
+	  callableStatement.registerOutParameter(3, Types.INTEGER);
+	  callableStatement.registerOutParameter(4, Types.INTEGER);
+	  callableStatement.registerOutParameter(5, Types.INTEGER);
+	  
+	  callableStatement.executeQuery();
+	  
+	  int actual_shipped = callableStatement.getInt(2);
+	  int actual_cancelled = callableStatement.getInt(3);
+	  int actual_resolved = callableStatement.getInt(4);
+	  int actual_disputed = callableStatement.getInt(5);
+	  
+	  statement = connection.createStatement();
+	  resultSet =  statement.executeQuery(SELECT rn
+	  		+ (SELECT COUNT() FROM ORDERS WHERE CUSTOMERNUMBER=141 AND STATUS='SHIPPED') AS SHIPPED,rn
+	  		+ (SELECT COUNT() FROM ORDERS WHERE CUSTOMERNUMBER=141 AND STATUS='CANCELLED') AS CANCELLED,rn
+	  		+ (SELECT COUNT() FROM ORDERS WHERE CUSTOMERNUMBER=141 AND STATUS='RESOLVED') AS RESOLVED,rn
+	  		+ (SELECT COUNT() FROM ORDERS WHERE CUSTOMERNUMBER=141 AND STATUS='DISPUTED') AS DISPUTEDrn
+	  );
+	  resultSet.next();
+	  
+	  int expected_shipped = resultSet.getInt(SHIPPED);
+	  int expected_cancelled = resultSet.getInt(CANCELLED);
+	  int expected_resolved = resultSet.getInt(RESOLVED);
+	  int expected_disputed = resultSet.getInt(DISPUTED);
+	  
+	  if(actual_shipped == expected_shipped && actual_cancelled == expected_cancelled && actual_resolved == expected_resolved && actual_disputed == expected_disputed) {
+		  Assert.assertTrue(true);
+	  } else {
+		  Assert.assertTrue(false);
+	  }	  
+  }  
+  
+  @Test(priority=6)
+  void test_getCustomerShipping() throws SQLException {
+	  
+	  callableStatement = connection.prepareCall({CALL GET_CUSTOMER_SHIPPING(, )});
+	  callableStatement.setInt(1, 141);	  
+	  callableStatement.registerOutParameter(2, Types.VARCHAR);
+	  
+	  callableStatement.executeQuery();
+	  
+	  String actual_shippingDuration = callableStatement.getString(2);
+	  
+	  statement = connection.createStatement();
+	  resultSet =  statement.executeQuery(SELECT COUNTRY, rn
+	  		+ CASE rn
+	  		+ WHEN COUNTRY=USA THEN 2-DAY SHIPPINGrn
+	  		+ WHEN COUNTRY=CANADA THEN 3-DAY SHIPPINGrn
+	  		+ ELSE 5-DAY SHIPPINGrn
+	  		+ END AS SHIPPINGDURATIONrn
+	  		+ FROM CUSTOMERS rn
+	  		+ WHERE CUSTOMERNUMBER=141
+	  );
+	  resultSet.next();
+	  
+	  String expected_shippingDuration = resultSet.getString(SHIPPINGDURATION);
+	  
+	  Assert.assertEquals(actual_shippingDuration, expected_shippingDuration);
+	    
+  } 
+  
+  public boolean compareResultSets(ResultSet resultSet1, ResultSet resultSet2) throws SQLException {
+	  
+	  int columnCount = resultSet1.getMetaData().getColumnCount();
+	  while(resultSet1.next()) {
+		  
+		  resultSet2.next();
+		  for (int i = 1; i = columnCount; i++) {
+			  
+			  if(!StringUtils.equals(resultSet1.getString(i), resultSet1.getString(i))) {
+				  return false;
+			  }
+		  }
+		  	  
+	  }
+	  return true;
+  }
+  
+  
+}
+ 

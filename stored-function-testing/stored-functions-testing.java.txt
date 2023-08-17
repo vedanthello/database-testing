@@ -1,0 +1,99 @@
+package storedfunctionTesting;
+
+import java.sql.CallableStatement;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.sql.Types;
+
+import org.apache.commons.lang3.StringUtils;
+import org.testng.Assert;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Test;
+
+public class StoredFunctionTesting {
+
+	Connection connection = null;
+	Statement statement = null;
+	ResultSet resultSet;
+	CallableStatement callableStatement;
+	ResultSet resultSet1;
+	ResultSet resultSet2;
+
+	@BeforeClass
+	void setup() throws SQLException{
+
+		connection = DriverManager.getConnection("jdbc:mysql://localhost:3306/classicmodels", "root", "root");
+	}
+
+	@AfterClass
+	void tearDown() throws SQLException {
+		connection.close();
+	}
+
+	@Test(priority=1)
+	void test_storedFunctionExists() throws SQLException {
+
+		resultSet = connection.createStatement().executeQuery("SHOW FUNCTION STATUS WHERE DB='CLASSICMODELS'");
+		resultSet.next();
+		Assert.assertEquals(resultSet.getString("Name"), "CUSTOMERLEVEL");
+	}
+
+	@Test(priority=2)
+	void test_functionCustomerLevel_withSQLStatement() throws SQLException {
+
+		resultSet1 = connection.createStatement().executeQuery("SELECT CUSTOMERNAME, CUSTOMERLEVEL(CREDITLIMIT) FROM CUSTOMERS");
+		resultSet2 = connection.createStatement().executeQuery("SELECT CUSTOMERNAME, \r\n"
+				+ "CASE\r\n"
+				+ "  WHEN CREDITLIMIT > 50000 THEN 'PLATINUM'\r\n"
+				+ "  WHEN CREDITLIMIT >= 10000 AND CREDITLIMIT < 50000 THEN 'GOLD'\r\n"
+				+ "  WHEN CREDITLIMIT < 10000 THEN 'SILVER'\r\n"
+				+ "END AS CUSTOMERLEVEL FROM CUSTOMERS;"
+				);
+
+		Assert.assertEquals(compareResultSets(resultSet1, resultSet2), true);
+	}
+	
+	@Test(priority=3)
+	void test_functionCustomerLevel_withStoredProcedure() throws SQLException {
+		
+		callableStatement = connection.prepareCall("{CALL GETCUSTOMERLEVEL(?, ?)}");
+		callableStatement.setInt(1, 131);
+		callableStatement.registerOutParameter(2, Types.VARCHAR);
+		callableStatement.executeQuery();
+		String actual_customerLevel = callableStatement.getString(2);
+		
+		resultSet = connection.createStatement().executeQuery("SELECT CASE\r\n"
+				+ "  WHEN CREDITLIMIT > 50000 THEN 'PLATINUM'\r\n"
+				+ "  WHEN CREDITLIMIT >= 10000 AND CREDITLIMIT < 50000 THEN 'GOLD'\r\n"
+				+ "  WHEN CREDITLIMIT < 10000 THEN 'SILVER'\r\n"
+				+ "END AS CUSTOMERLEVEL FROM CUSTOMERS\r\n"
+				+ "WHERE CUSTOMERNUMBER=131;"
+				);
+		resultSet.next();
+		String expected_customerLevel = resultSet.getString("CUSTOMERLEVEL");
+		
+		Assert.assertEquals(actual_customerLevel, expected_customerLevel);
+	}
+
+	public boolean compareResultSets(ResultSet resultSet1, ResultSet resultSet2) throws SQLException {
+
+		int columnCount = resultSet1.getMetaData().getColumnCount();
+		while(resultSet1.next()) {
+
+			resultSet2.next();
+			for (int i = 1; i <= columnCount; i++) {
+
+				if(!StringUtils.equals(resultSet1.getString(i), resultSet1.getString(i))) {
+					return false;
+				}
+			}
+
+		}
+		return true;
+	}
+
+}
